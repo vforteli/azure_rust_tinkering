@@ -1,15 +1,14 @@
 use azure_rust_tinkering::path_client::PathClient;
+use azure_rust_tinkering::path_index_client::{ListPathsOptions, PathIndexClient};
+use azure_rust_tinkering::path_index_model::PathIndexModel;
 use azure_storage_datalake::file_system::Path;
 use azure_storage_datalake::{self};
+use azure_svc_search::package_2023_11_searchindex::search_extensions;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 extern crate dotenv;
 use dotenv::dotenv;
 use std::env;
-
-pub mod path_client;
-pub mod path_index_model;
-pub mod search_indexer;
 
 #[tokio::main]
 async fn main() -> azure_core::Result<()> {
@@ -23,14 +22,59 @@ async fn main() -> azure_core::Result<()> {
     let azure_search_account_name =
         env::var("AZURE_SEARCH_ACCOUNT_NAME").expect("No azure search key found...");
 
+    run_list_paths_index_test(&azure_search_key, &azure_search_account_name).await;
+
     // testing list paths...
     // run_list_paths_test().await;
-
-    let derp = search_indexer::foo(&azure_search_account_name, &azure_search_key).await;
 
     Ok(())
 }
 
+// Test listing paths from path index
+async fn run_list_paths_index_test(azure_search_key: &str, azure_search_account_name: &str) {
+    let client = PathIndexClient::new(
+        azure_search_account_name,
+        search_extensions::SearchAuthenticationMethod::ApiKey(azure_search_key.to_string()),
+    );
+
+    let (paths_sender, mut paths_receiver) = mpsc::channel::<Option<PathIndexModel>>(10000);
+    let paths_sender = Arc::new(paths_sender);
+
+    let read_task = tokio::spawn(async move {
+        let mut read_count = 0;
+        loop {
+            match paths_receiver.recv().await {
+                Some(path) => {
+                    read_count += 1;
+
+                    if read_count % 1000 == 0 {
+                        println!("Read {} files so far", read_count);
+                        println!("{:?}", path.unwrap().file_last_modified)
+                    }
+                }
+                None => break,
+            }
+        }
+
+        println!("Read all paths \\o/");
+    });
+
+    let count = client
+        .list_paths(
+            ListPathsOptions {
+                filter: None, //Some("search.ismatch('partition_9*')".to_string()),
+                from_last_modified: None,
+            },
+            paths_sender,
+        )
+        .await;
+
+    read_task.await.expect("durr...");
+
+    println!("Found {} files", count.unwrap());
+}
+
+// Test listing paths from datalake
 async fn run_list_paths_test(account: &str, sas_token: &str, file_system_name: &str) {
     let (paths_sender, mut paths_receiver) = mpsc::channel::<Option<Path>>(10000);
     let paths_sender = Arc::new(paths_sender);

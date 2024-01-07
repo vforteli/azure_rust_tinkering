@@ -15,7 +15,6 @@ pub struct PathClient {
     sas_token: String,
 }
 
-// todo, iterator maybe?
 impl PathClient {
     pub fn new(storage_account_name: String, sas_token: String) -> Self {
         Self {
@@ -42,7 +41,8 @@ impl PathClient {
                 .expect("hu? check your token"),
         ));
 
-        let file_system_client = Arc::new(data_lake_client.file_system_client(file_system_name));
+        let file_system_client: Arc<azure_storage_datalake::prelude::FileSystemClient> =
+            Arc::new(data_lake_client.file_system_client(file_system_name));
 
         let directory_receiver_count = Arc::new(AtomicUsize::new(1)); // ugh, why doesnt tokio channels expose a count?
         directory_sender
@@ -148,13 +148,5 @@ impl PathClient {
         );
 
         count
-    }
-}
-
-impl Iterator for PathClient {
-    type Item = Path;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        todo!()
     }
 }
