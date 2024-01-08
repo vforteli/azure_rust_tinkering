@@ -1,6 +1,8 @@
+use azure_rust_tinkering::document_model::DocumentModel;
 use azure_rust_tinkering::path_client::PathClient;
 use azure_rust_tinkering::path_index_client::{ListPathsOptions, PathIndexClient};
 use azure_rust_tinkering::path_index_model::PathIndexModel;
+use azure_rust_tinkering::search_indexer::SearchIndexer;
 use azure_storage_datalake::file_system::Path;
 use azure_storage_datalake::{self};
 use azure_svc_search::package_2023_11_searchindex::search_extensions;
@@ -22,7 +24,13 @@ async fn main() -> azure_core::Result<()> {
     let azure_search_account_name =
         env::var("AZURE_SEARCH_ACCOUNT_NAME").expect("No azure search key found...");
 
-    run_list_paths_index_test(&azure_search_key, &azure_search_account_name).await;
+    run_list_paths_index_test(
+        &azure_search_key,
+        &azure_search_account_name,
+        account,
+        sas_token,
+    )
+    .await;
 
     // testing list paths...
     // run_list_paths_test().await;
@@ -31,32 +39,30 @@ async fn main() -> azure_core::Result<()> {
 }
 
 // Test listing paths from path index
-async fn run_list_paths_index_test(azure_search_key: &str, azure_search_account_name: &str) {
+async fn run_list_paths_index_test(
+    azure_search_key: &str,
+    azure_search_account_name: &str,
+    account: String,
+    sas_token: String,
+) {
     let client = PathIndexClient::new(
         azure_search_account_name,
         search_extensions::SearchAuthenticationMethod::ApiKey(azure_search_key.to_string()),
     );
 
-    let (paths_sender, mut paths_receiver) = mpsc::channel::<Option<PathIndexModel>>(10000);
+    let (paths_sender, paths_receiver) = mpsc::channel::<Option<PathIndexModel>>(10000);
     let paths_sender = Arc::new(paths_sender);
 
-    let read_task = tokio::spawn(async move {
-        let mut read_count = 0;
-        loop {
-            match paths_receiver.recv().await {
-                Some(path) => {
-                    read_count += 1;
+    let (documents_sender, documents_receiver) = mpsc::channel::<Option<DocumentModel>>(10000);
+    let documents_sender = Arc::new(documents_sender);
 
-                    if read_count % 1000 == 0 {
-                        println!("Read {} files so far", read_count);
-                        println!("{:?}", path.unwrap().file_last_modified)
-                    }
-                }
-                None => break,
-            }
-        }
+    let process_documents_task = tokio::spawn(async move {
+        let indexer = SearchIndexer::new(account.to_string(), sas_token.to_string());
+        let result = indexer
+            .read_documents(paths_receiver, documents_sender, 256)
+            .await;
 
-        println!("Read all paths \\o/");
+        println!("read {} documents... done...", result.unwrap());
     });
 
     let count = client
@@ -69,7 +75,7 @@ async fn run_list_paths_index_test(azure_search_key: &str, azure_search_account_
         )
         .await;
 
-    read_task.await.expect("durr...");
+    process_documents_task.await.expect("durr...");
 
     println!("Found {} files", count.unwrap());
 }

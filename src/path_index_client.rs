@@ -52,6 +52,7 @@ impl PathIndexClient {
             .unwrap_or("".to_string());
 
         let mut order_by_filter = "".to_string();
+        let documents_client = self.search_client.documents_client();
 
         loop {
             let combined_filter =
@@ -67,9 +68,7 @@ impl PathIndexClient {
             let mut previous_key = None;
 
             loop {
-                let search_response = self
-                    .search_client
-                    .documents_client()
+                let search_response = documents_client
                     .search_post::<PathIndexModel>(search_request)
                     .send()
                     .await;

@@ -1,21 +1,24 @@
 // todo this probably requires some macros for creating keys, searchable fields etc
 
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct IndexModelTest {
+pub struct TestIndexModel {
     #[serde(rename = "pathbase64")]
-    pub path_base64: Option<String>,
+    pub path_base64: String,
 
-    pub stringvalue: Option<String>,
+    pub stringvalue: String,
 
-    pub numbervalue: Option<i32>,
+    pub numbervalue: i32,
 
-    pub booleanvalue: Option<bool>,
+    pub booleanvalue: bool,
 
     #[serde(rename = "eTag")]
-    pub etqg: Option<String>,
+    pub etag: String,
 
     #[serde(rename = "pathUrlEncoded")]
-    pub path_url_encoded: Option<String>,
+    pub path_url_encoded: String,
 
     #[serde(rename = "lastModified")]
     pub last_modified: chrono::DateTime<Utc>,
