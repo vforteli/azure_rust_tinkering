@@ -2,11 +2,16 @@ use std::{error::Error, str::FromStr, sync::Arc};
 
 use azure_core::Url;
 use azure_svc_search::package_2023_11_searchindex::{
-    self, models::SearchRequest, search_extensions,
+    self,
+    models::{index_action::SearchAction, IndexAction, IndexBatch, SearchRequest},
+    search_extensions,
 };
+use chrono::{DateTime, Utc};
 use tokio::sync::mpsc::Sender;
 
-use crate::{path_index_model::PathIndexModel, utils::concat_filter_and};
+use crate::{
+    path_index_model::PathIndexModel, test_index_model::TestIndexModel, utils::concat_filter_and,
+};
 
 pub struct PathIndexClient {
     search_client: package_2023_11_searchindex::Client,
@@ -53,6 +58,21 @@ impl PathIndexClient {
 
         let mut order_by_filter = "".to_string();
         let documents_client = self.search_client.documents_client();
+
+        let foo = TestIndexModel {
+            booleanvalue: true,
+            etag: "foo".to_string(),
+            last_modified: chrono::DateTime::<Utc>::MAX_UTC,
+            numbervalue: 42,
+            path_base64: "".to_string(),
+            path_url_encoded: "".to_string(),
+            stringvalue: "foo".to_string(),
+        };
+
+        let action = IndexAction::new(SearchAction::MergeOrUpload(foo));
+
+        let batch = IndexBatch::new(vec![action]);
+        documents_client.index(batch);
 
         loop {
             let combined_filter =
