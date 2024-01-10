@@ -1,5 +1,5 @@
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PathIndexModel {
@@ -11,9 +11,9 @@ pub struct PathIndexModel {
     #[serde(rename = "filesystem")]
     pub file_system: String,
 
-    #[serde(rename = "fileLastModified")]
-    pub file_last_modified: chrono::DateTime<Utc>,
+    #[serde(rename = "fileLastModified", with = "time::serde::rfc3339")]
+    pub file_last_modified: OffsetDateTime,
 
-    #[serde(rename = "lastModified")]
-    pub last_modified: chrono::DateTime<Utc>,
+    #[serde(rename = "lastModified", with = "time::serde::rfc3339")]
+    pub last_modified: OffsetDateTime,
 }

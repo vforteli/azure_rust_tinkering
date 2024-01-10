@@ -8,6 +8,7 @@ use urlencoding::decode;
 
 use crate::document_model::DocumentModel;
 use crate::path_index_model::PathIndexModel;
+use crate::test_index_model::TestIndexModel;
 
 pub struct SearchIndexer {
     storage_account_name: String,
@@ -25,7 +26,7 @@ impl SearchIndexer {
     pub async fn read_documents(
         &self,
         mut paths_receiver: Receiver<Option<PathIndexModel>>,
-        documents_sender: Arc<Sender<Option<DocumentModel>>>, // todo this should actually be the target index model TIndex
+        documents_sender: Arc<Sender<Option<TestIndexModel>>>, // todo this should actually be the target index model TIndex
         // todo also.. this thingy should take a mapping function from TDocument to TIndex
         max_threads: usize,
     ) -> Result<u64, Box<dyn Error>> {
@@ -48,18 +49,27 @@ impl SearchIndexer {
                     let file_client =
                         file_system_client.get_file_client(decode(&path.path_url_encoded).unwrap());
 
-                    let properties = file_client.get_properties().await;
+                    let properties = file_client.get_properties().await?;
 
                     let document = serde_json::from_slice::<DocumentModel>(
                         &file_client.read().await.unwrap().data,
                     )
                     .unwrap();
 
+                    let index_model = TestIndexModel {
+                        booleanvalue: document.booleanvalue,
+                        etag: properties.etag,
+                        last_modified: properties.last_modified,
+                        numbervalue: document.numbervalue,
+                        stringvalue: document.stringvalue,
+                        path_base64: "blabla".to_string(),
+                        path_url_encoded: "blabla".to_string(),
+                    };
+
+                    documents_sender.send(Some(index_model)).await?;
+
                     if read_count % 10 == 0 {
                         println!("Read {} files so far", read_count);
-                        println!("{:?}", path.file_last_modified);
-                        println!("Properties: {}", properties.unwrap().etag);
-                        println!("Document something: {:?}", document.numbervalue);
                     }
                 }
                 None => break,

@@ -1,8 +1,8 @@
-use azure_rust_tinkering::document_model::DocumentModel;
 use azure_rust_tinkering::path_client::PathClient;
 use azure_rust_tinkering::path_index_client::{ListPathsOptions, PathIndexClient};
 use azure_rust_tinkering::path_index_model::PathIndexModel;
 use azure_rust_tinkering::search_indexer::SearchIndexer;
+use azure_rust_tinkering::test_index_model::TestIndexModel;
 use azure_storage_datalake::file_system::Path;
 use azure_storage_datalake::{self};
 use azure_svc_search::package_2023_11_searchindex::search_extensions;
@@ -53,7 +53,7 @@ async fn run_list_paths_index_test(
     let (paths_sender, paths_receiver) = mpsc::channel::<Option<PathIndexModel>>(10000);
     let paths_sender = Arc::new(paths_sender);
 
-    let (documents_sender, documents_receiver) = mpsc::channel::<Option<DocumentModel>>(10000);
+    let (documents_sender, documents_receiver) = mpsc::channel::<Option<TestIndexModel>>(10000);
     let documents_sender = Arc::new(documents_sender);
 
     let process_documents_task = tokio::spawn(async move {
