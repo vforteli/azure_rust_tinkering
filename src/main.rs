@@ -53,16 +53,34 @@ async fn run_list_paths_index_test(
     let (paths_sender, paths_receiver) = mpsc::channel::<Option<PathIndexModel>>(10000);
     let paths_sender = Arc::new(paths_sender);
 
-    let (documents_sender, documents_receiver) = mpsc::channel::<Option<TestIndexModel>>(10000);
+    let (documents_sender, mut documents_receiver) = mpsc::channel::<Option<TestIndexModel>>(10000);
     let documents_sender = Arc::new(documents_sender);
 
     let process_documents_task = tokio::spawn(async move {
         let indexer = SearchIndexer::new(account.to_string(), sas_token.to_string());
         let result = indexer
-            .read_documents(paths_receiver, documents_sender, 256)
+            .read_documents(paths_receiver, documents_sender, 128)
             .await;
 
-        println!("read {} documents... done...", result.unwrap());
+        println!("Read {} documents... done...", result.unwrap());
+    });
+
+    let upload_documents_task = tokio::spawn(async move {
+        let mut dummy_upload_count = 0;
+        loop {
+            match documents_receiver.recv().await {
+                Some(_) => {
+                    dummy_upload_count += 1;
+
+                    if dummy_upload_count % 1000 == 0 {
+                        println!("Uploaded {} files so far", dummy_upload_count);
+                    }
+                }
+                None => break,
+            }
+        }
+
+        println!("Uploaded all documents \\o/");
     });
 
     let count = client
@@ -76,8 +94,9 @@ async fn run_list_paths_index_test(
         .await;
 
     process_documents_task.await.expect("durr...");
+    upload_documents_task.await.expect("hu?");
 
-    println!("Found {} files", count.unwrap());
+    println!("Found {} paths in index", count.unwrap());
 }
 
 // Test listing paths from datalake

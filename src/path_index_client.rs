@@ -55,21 +55,6 @@ impl PathIndexClient {
         let mut order_by_filter = "".to_string();
         let documents_client = self.search_client.documents_client();
 
-        // let foo = TestIndexModel {
-        //     booleanvalue: true,
-        //     etag: "foo".to_string(),
-        //     last_modified: chrono::DateTime::<Utc>::MAX_UTC,
-        //     numbervalue: 42,
-        //     path_base64: "".to_string(),
-        //     path_url_encoded: "".to_string(),
-        //     stringvalue: "foo".to_string(),
-        // };
-
-        // let action = IndexAction::new(SearchAction::MergeOrUpload(foo));
-
-        // let batch = IndexBatch::new(vec![action]);
-        // documents_client.index(batch);
-
         loop {
             let combined_filter =
                 concat_filter_and(&[&order_by_filter, &filter, &last_modified_filter]);
