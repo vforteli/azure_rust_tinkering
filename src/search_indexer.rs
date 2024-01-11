@@ -1,12 +1,14 @@
 use azure_storage::StorageCredentials;
 use azure_storage_datalake::clients::FileSystemClient;
 use azure_storage_datalake::{self, clients::DataLakeClient};
+use futures::FutureExt;
 use std::error::Error;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::usize;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 use urlencoding::decode;
 
 use crate::document_model::DocumentModel;
@@ -39,12 +41,19 @@ impl SearchIndexer {
                 .expect("hu? check your token"),
         ));
 
+        let mut tasks = JoinSet::<()>::new();
         let semaphore = Arc::new(Semaphore::new(max_threads));
         let processed_counter = Arc::new(AtomicU64::new(0));
 
         loop {
             match paths_receiver.recv().await {
                 Some(path) => {
+                    // this is here to clean up completed tasks from the joinset. Otherwise there will at some point be potentially millions of them hanging around
+                    while let Some(Some(_)) =
+                        tokio::task::unconstrained(tasks.join_next()).now_or_never()
+                    {
+                    }
+
                     if let Some(path) = path {
                         let processed_counter = Arc::clone(&processed_counter);
                         let data_lake_client = Arc::clone(&data_lake_client);
@@ -53,7 +62,7 @@ impl SearchIndexer {
                         let semaphore = Arc::clone(&semaphore);
                         let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap();
 
-                        tokio::spawn(async move {
+                        tasks.spawn(async move {
                             // todo cache file system clients / file system?
                             let file_system_client: FileSystemClient =
                                 data_lake_client.file_system_client(path.file_system);
@@ -103,6 +112,9 @@ impl SearchIndexer {
                 None => break,
             }
         }
+
+        // wait for remaining tasks...
+        while let Some(_) = tasks.join_next().await {}
 
         println!("Read all paths \\o/");
 
