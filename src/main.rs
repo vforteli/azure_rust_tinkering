@@ -1,3 +1,4 @@
+use azure_rust_tinkering::batch_uploader::BatchUploader;
 use azure_rust_tinkering::path_client::PathClient;
 use azure_rust_tinkering::path_index_client::{ListPathsOptions, PathIndexClient};
 use azure_rust_tinkering::path_index_model::PathIndexModel;
@@ -8,6 +9,7 @@ use azure_storage_datalake::{self};
 use azure_svc_search::package_2023_11_searchindex::search_extensions;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tokio::time::Instant;
 extern crate dotenv;
 use dotenv::dotenv;
 use std::env;
@@ -41,20 +43,27 @@ async fn main() -> azure_core::Result<()> {
 // Test listing paths from path index
 async fn run_list_paths_index_test(
     azure_search_key: &str,
-    azure_search_account_name: &str,
+    azure_search_url: &str,
     account: String,
     sas_token: String,
 ) {
     let client = PathIndexClient::new(
-        azure_search_account_name,
+        azure_search_url,
+        search_extensions::SearchAuthenticationMethod::ApiKey(azure_search_key.to_string()),
+    );
+
+    let batch_uploader = BatchUploader::new(
+        &azure_search_url,
         search_extensions::SearchAuthenticationMethod::ApiKey(azure_search_key.to_string()),
     );
 
     let (paths_sender, paths_receiver) = mpsc::channel::<Option<PathIndexModel>>(10000);
     let paths_sender = Arc::new(paths_sender);
 
-    let (documents_sender, mut documents_receiver) = mpsc::channel::<Option<TestIndexModel>>(10000);
+    let (documents_sender, documents_receiver) = mpsc::channel::<Option<TestIndexModel>>(10000);
     let documents_sender = Arc::new(documents_sender);
+
+    let start_time = Instant::now();
 
     let process_documents_task = tokio::spawn(async move {
         let indexer = SearchIndexer::new(account.to_string(), sas_token.to_string());
@@ -66,24 +75,12 @@ async fn run_list_paths_index_test(
     });
 
     let upload_documents_task = tokio::spawn(async move {
-        let mut dummy_upload_count = 0;
-        loop {
-            match documents_receiver.recv().await {
-                Some(_) => {
-                    dummy_upload_count += 1;
-
-                    if dummy_upload_count % 1000 == 0 {
-                        println!("Uploaded {} files so far", dummy_upload_count);
-                    }
-                }
-                None => break,
-            }
-        }
+        batch_uploader.upload_batches(documents_receiver, 4).await;
 
         println!("Uploaded all documents \\o/");
     });
 
-    let count = client
+    let list_count = client
         .list_paths(
             ListPathsOptions {
                 filter: None, //Some("search.ismatch('partition_9*')".to_string()),
@@ -96,7 +93,14 @@ async fn run_list_paths_index_test(
     process_documents_task.await.expect("durr...");
     upload_documents_task.await.expect("hu?");
 
-    println!("Found {} paths in index", count.unwrap());
+    println!(
+        "Done after {}ms",
+        Instant::now()
+            .checked_duration_since(start_time)
+            .unwrap()
+            .as_millis()
+    );
+    println!("Found {} paths in index", list_count.unwrap());
 }
 
 // Test listing paths from datalake

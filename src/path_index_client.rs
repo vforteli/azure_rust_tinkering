@@ -1,12 +1,9 @@
-use std::{error::Error, str::FromStr, sync::Arc};
-
 use crate::{path_index_model::PathIndexModel, utils::concat_filter_and};
 use azure_core::Url;
 use azure_svc_search::package_2023_11_searchindex::{
-    self,
-    models::{index_action::SearchAction, IndexAction, IndexBatch, SearchRequest},
-    search_extensions,
+    self, models::SearchRequest, search_extensions,
 };
+use std::{error::Error, str::FromStr, sync::Arc};
 use tokio::sync::mpsc::Sender;
 
 pub struct PathIndexClient {
@@ -26,7 +23,7 @@ impl PathIndexClient {
         search_service_url: &str,
         credential: search_extensions::SearchAuthenticationMethod,
     ) -> Self {
-        let client = package_2023_11_searchindex::ClientBuilder::new(credential)
+        let search_client = package_2023_11_searchindex::ClientBuilder::new(credential)
             .endpoint(
                 Url::from_str(&format!("{}/{}", search_service_url, PATH_INDEX_NAME))
                     .expect("Invalid search service url probably"),
@@ -34,9 +31,7 @@ impl PathIndexClient {
             .build()
             .expect("Something went haywire creating client?!");
 
-        Self {
-            search_client: client,
-        }
+        Self { search_client }
     }
 
     pub async fn list_paths(

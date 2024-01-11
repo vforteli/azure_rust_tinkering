@@ -1,5 +1,8 @@
+use crate::document_model::DocumentModel;
+use crate::path_index_model::PathIndexModel;
+use crate::test_index_model::TestIndexModel;
+use azure_core::base64::encode;
 use azure_storage::StorageCredentials;
-use azure_storage_datalake::clients::FileSystemClient;
 use azure_storage_datalake::{self, clients::DataLakeClient};
 use futures::FutureExt;
 use std::error::Error;
@@ -10,10 +13,6 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use urlencoding::decode;
-
-use crate::document_model::DocumentModel;
-use crate::path_index_model::PathIndexModel;
-use crate::test_index_model::TestIndexModel;
 
 pub struct SearchIndexer {
     storage_account_name: String,
@@ -64,11 +63,12 @@ impl SearchIndexer {
 
                         tasks.spawn(async move {
                             // todo cache file system clients / file system?
-                            let file_system_client: FileSystemClient =
-                                data_lake_client.file_system_client(path.file_system);
-
-                            let file_client = file_system_client
-                                .get_file_client(decode(&path.path_url_encoded).unwrap());
+                            let file_client = data_lake_client
+                                .file_system_client(&path.file_system)
+                                .get_file_client(
+                                    decode(&path.path_url_encoded)
+                                        .expect("Failed creating file client?!"),
+                                );
 
                             let properties = file_client
                                 .get_properties()
@@ -86,8 +86,11 @@ impl SearchIndexer {
                                 last_modified: properties.last_modified,
                                 numbervalue: document.numbervalue,
                                 stringvalue: document.stringvalue,
-                                path_base64: "blabla".to_string(),
-                                path_url_encoded: "blabla".to_string(),
+                                path_base64: encode(format!(
+                                    "{}%2f{}",
+                                    path.file_system, path.path_url_encoded
+                                )),
+                                path_url_encoded: path.path_url_encoded,
                             };
 
                             documents_sender
