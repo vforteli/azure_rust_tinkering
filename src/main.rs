@@ -47,6 +47,9 @@ async fn run_list_paths_index_test(
     account: String,
     sas_token: String,
 ) {
+    let max_upload_threads = 4;
+    let upload_batch_size = 1000;
+
     let client = PathIndexClient::new(
         azure_search_url,
         search_extensions::SearchAuthenticationMethod::ApiKey(azure_search_key.to_string()),
@@ -57,10 +60,12 @@ async fn run_list_paths_index_test(
         search_extensions::SearchAuthenticationMethod::ApiKey(azure_search_key.to_string()),
     );
 
-    let (paths_sender, paths_receiver) = mpsc::channel::<Option<PathIndexModel>>(10000);
+    let (paths_sender, paths_receiver) =
+        mpsc::channel::<Option<PathIndexModel>>(upload_batch_size * max_upload_threads * 2);
     let paths_sender = Arc::new(paths_sender);
 
-    let (documents_sender, documents_receiver) = mpsc::channel::<Option<TestIndexModel>>(10000);
+    let (documents_sender, documents_receiver) =
+        mpsc::channel::<TestIndexModel>(upload_batch_size * (max_upload_threads + 2));
     let documents_sender = Arc::new(documents_sender);
 
     let start_time = Instant::now();
@@ -75,7 +80,9 @@ async fn run_list_paths_index_test(
     });
 
     let upload_documents_task = tokio::spawn(async move {
-        batch_uploader.upload_batches(documents_receiver, 4).await;
+        batch_uploader
+            .upload_batches(documents_receiver, max_upload_threads)
+            .await;
 
         println!("Uploaded all documents \\o/");
     });

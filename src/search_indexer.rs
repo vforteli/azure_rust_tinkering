@@ -3,8 +3,10 @@ use crate::path_index_model::PathIndexModel;
 use crate::test_index_model::TestIndexModel;
 use azure_core::base64::encode;
 use azure_storage::StorageCredentials;
+use azure_storage_datalake::clients::FileSystemClient;
 use azure_storage_datalake::{self, clients::DataLakeClient};
 use futures::FutureExt;
+use std::collections::HashMap;
 use std::error::Error;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
@@ -30,7 +32,7 @@ impl SearchIndexer {
     pub async fn read_documents(
         &self,
         mut paths_receiver: Receiver<Option<PathIndexModel>>,
-        documents_sender: Arc<Sender<Option<TestIndexModel>>>, // todo this should actually be the target index model TIndex
+        documents_sender: Arc<Sender<TestIndexModel>>, // todo this should actually be the target index model TIndex
         // todo also.. this thingy should take a mapping function from TDocument to TIndex
         max_threads: usize,
     ) -> Result<u64, Box<dyn Error>> {
@@ -44,6 +46,9 @@ impl SearchIndexer {
         let semaphore = Arc::new(Semaphore::new(max_threads));
         let processed_counter = Arc::new(AtomicU64::new(0));
 
+        // todo this is here to validate if caching the filesystemclient makes sense...
+        let file_system_client = Arc::new(data_lake_client.file_system_client("stuff-large-files"));
+
         loop {
             match paths_receiver.recv().await {
                 Some(path) => {
@@ -55,20 +60,19 @@ impl SearchIndexer {
 
                     if let Some(path) = path {
                         let processed_counter = Arc::clone(&processed_counter);
-                        let data_lake_client = Arc::clone(&data_lake_client);
+                        // let data_lake_client = Arc::clone(&data_lake_client);
                         let documents_sender = Arc::clone(&documents_sender);
 
                         let semaphore = Arc::clone(&semaphore);
                         let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap();
+                        let file_system_client = Arc::clone(&file_system_client);
 
                         tasks.spawn(async move {
                             // todo cache file system clients / file system?
-                            let file_client = data_lake_client
-                                .file_system_client(&path.file_system)
-                                .get_file_client(
-                                    decode(&path.path_url_encoded)
-                                        .expect("Failed creating file client?!"),
-                                );
+                            let file_client = &file_system_client.get_file_client(
+                                decode(&path.path_url_encoded)
+                                    .expect("Failed creating file client?!"),
+                            );
 
                             let properties = file_client
                                 .get_properties()
@@ -94,7 +98,7 @@ impl SearchIndexer {
                             };
 
                             documents_sender
-                                .send(Some(index_model))
+                                .send(index_model)
                                 .await
                                 .expect("document sender wat u doin?");
 

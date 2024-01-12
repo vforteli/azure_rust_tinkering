@@ -54,8 +54,6 @@ impl PathIndexClient {
             let combined_filter =
                 concat_filter_and(&[&order_by_filter, &filter, &last_modified_filter]);
 
-            println!("Running query with filter: {}", combined_filter);
-
             let mut search_request = SearchRequest::new();
             search_request.top = Some(SEARCH_PAGE_SIZE);
             search_request.filter = Some(combined_filter);

@@ -1,11 +1,16 @@
+use crate::document_model;
 use crate::test_index_model::TestIndexModel;
 use azure_core::Url;
 use azure_svc_search::package_2023_11_searchindex::models::index_action::SearchAction;
 use azure_svc_search::package_2023_11_searchindex::models::{IndexAction, IndexBatch};
 use azure_svc_search::package_2023_11_searchindex::{self, search_extensions, Client};
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::usize;
 use tokio::sync::mpsc::Receiver;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 
 pub struct BatchUploader {
     search_client: Client,
@@ -31,33 +36,48 @@ impl BatchUploader {
 
     pub async fn upload_batches(
         &self,
-        mut documents_receiver: Receiver<Option<TestIndexModel>>,
+        mut documents_receiver: Receiver<TestIndexModel>,
         max_threads: usize,
     ) {
-        let document_client = self.search_client.documents_client();
+        let document_client = Arc::new(self.search_client.documents_client());
+        let mut tasks = JoinSet::<()>::new();
+        let semaphore = Arc::new(Semaphore::new(max_threads));
+
+        let processed_counter = Arc::new(AtomicU64::new(0));
 
         let mut buffer = Vec::<TestIndexModel>::with_capacity(1000);
 
-        // todo spawn...
         while let Some(document) = documents_receiver.recv().await {
-            if let Some(document) = document {
-                buffer.push(document)
-            }
+            buffer.push(document);
 
             if (buffer.len()) % 1000 == 0 && buffer.len() > 0 {
                 println!("Sending batch");
+
+                let processed_counter = Arc::clone(&processed_counter);
+                let semaphore = Arc::clone(&semaphore);
+                let document_client = Arc::clone(&document_client);
+                let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap();
+
                 let items = buffer
                     .drain(..)
                     .map(|d| IndexAction::new(SearchAction::MergeOrUpload(d)))
                     .collect::<Vec<_>>();
 
-                let batch = IndexBatch::new(items);
-                let result = document_client.index(batch).await;
-                println!(
-                    "Did something with {} documents",
-                    result.unwrap().value.len()
-                );
+                tasks.spawn(async move {
+                    let result = document_client.index(IndexBatch::new(items)).await.unwrap();
+                    println!("Uploaded {} documents", &result.value.len());
+
+                    processed_counter.fetch_add(result.value.len() as u64, Ordering::SeqCst);
+
+                    drop(permit);
+                });
             }
         }
+
+        // wait for remaining tasks...
+        println!("Waiting for all upload tasks to complete...");
+        while let Some(_) = tasks.join_next().await {}
+
+        println!("Upload done");
     }
 }
