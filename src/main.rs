@@ -1,10 +1,13 @@
+use azure_core::base64::encode;
 use azure_rust_tinkering::batch_uploader::BatchUploader;
+use azure_rust_tinkering::document_model::DocumentModel;
 use azure_rust_tinkering::path_client::PathClient;
 use azure_rust_tinkering::path_index_client::{ListPathsOptions, PathIndexClient};
 use azure_rust_tinkering::path_index_model::PathIndexModel;
 use azure_rust_tinkering::search_indexer::SearchIndexer;
 use azure_rust_tinkering::test_index_model::TestIndexModel;
 use azure_storage_datalake::file_system::Path;
+use azure_storage_datalake::operations::HeadPathResponse;
 use azure_storage_datalake::{self};
 use azure_svc_search::package_2023_11_searchindex::search_extensions;
 use std::sync::Arc;
@@ -71,9 +74,32 @@ async fn run_list_paths_index_test(
     let start_time = Instant::now();
 
     let process_documents_task = tokio::spawn(async move {
+        fn mapping_func(
+            path: PathIndexModel,
+            document: DocumentModel,
+            properties: HeadPathResponse,
+        ) -> Option<TestIndexModel> {
+            let index_model = TestIndexModel {
+                booleanvalue: document.booleanvalue,
+                etag: properties.etag,
+                last_modified: properties.last_modified,
+                numbervalue: document.numbervalue,
+                stringvalue: document.stringvalue,
+                path_base64: encode(format!("{}%2f{}", path.file_system, path.path_url_encoded)),
+                path_url_encoded: path.path_url_encoded,
+            };
+
+            Some(index_model)
+        }
+
         let indexer = SearchIndexer::new(account.to_string(), sas_token.to_string());
         let result = indexer
-            .read_documents(paths_receiver, documents_sender, 128)
+            .index_documents(
+                paths_receiver,
+                documents_sender,
+                Arc::new(mapping_func),
+                128,
+            )
             .await;
 
         println!("Read {} documents... done...", result.unwrap());

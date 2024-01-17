@@ -1,12 +1,11 @@
 use crate::document_model::DocumentModel;
 use crate::path_index_model::PathIndexModel;
 use crate::test_index_model::TestIndexModel;
-use azure_core::base64::encode;
 use azure_storage::StorageCredentials;
 use azure_storage_datalake::clients::FileSystemClient;
+use azure_storage_datalake::operations::HeadPathResponse;
 use azure_storage_datalake::{self, clients::DataLakeClient};
 use futures::FutureExt;
-use std::collections::HashMap;
 use std::error::Error;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
@@ -29,11 +28,15 @@ impl SearchIndexer {
         }
     }
 
-    pub async fn read_documents(
+    pub async fn index_documents(
         &self,
         mut paths_receiver: Receiver<Option<PathIndexModel>>,
         documents_sender: Arc<Sender<TestIndexModel>>, // todo this should actually be the target index model TIndex
-        // todo also.. this thingy should take a mapping function from TDocument to TIndex
+        mapping_func: Arc<
+            dyn Fn(PathIndexModel, DocumentModel, HeadPathResponse) -> Option<TestIndexModel>
+                + Sync
+                + Send,
+        >, // todo should be generic
         max_threads: usize,
     ) -> Result<u64, Box<dyn Error>> {
         let data_lake_client = Arc::new(DataLakeClient::new(
@@ -66,6 +69,7 @@ impl SearchIndexer {
                         let semaphore = Arc::clone(&semaphore);
                         let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap();
                         let file_system_client = Arc::clone(&file_system_client);
+                        let mapping_func = Arc::clone(&mapping_func);
 
                         tasks.spawn(async move {
                             // todo cache file system clients / file system?
@@ -84,18 +88,8 @@ impl SearchIndexer {
                             )
                             .expect("Unable to read document?!");
 
-                            let index_model = TestIndexModel {
-                                booleanvalue: document.booleanvalue,
-                                etag: properties.etag,
-                                last_modified: properties.last_modified,
-                                numbervalue: document.numbervalue,
-                                stringvalue: document.stringvalue,
-                                path_base64: encode(format!(
-                                    "{}%2f{}",
-                                    path.file_system, path.path_url_encoded
-                                )),
-                                path_url_encoded: path.path_url_encoded,
-                            };
+                            let index_model = mapping_func(path, document, properties)
+                                .expect("uh oh.. shouldve handled this");
 
                             documents_sender
                                 .send(index_model)

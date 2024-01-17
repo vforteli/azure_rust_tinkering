@@ -1,4 +1,3 @@
-use crate::document_model;
 use crate::test_index_model::TestIndexModel;
 use azure_core::Url;
 use azure_svc_search::package_2023_11_searchindex::models::index_action::SearchAction;
@@ -47,10 +46,16 @@ impl BatchUploader {
 
         let mut buffer = Vec::<TestIndexModel>::with_capacity(1000);
 
-        while let Some(document) = documents_receiver.recv().await {
-            buffer.push(document);
+        loop {
+            let document = documents_receiver.recv().await;
+            let has_more = document.is_some();
 
-            if (buffer.len()) % 1000 == 0 && buffer.len() > 0 {
+            if let Some(d) = document {
+                buffer.push(d);
+            }
+
+            // todo this should also send the batch if above size limit
+            if (buffer.len()) % 1000 == 0 || (!has_more && buffer.len() > 0) {
                 println!("Sending batch");
 
                 let processed_counter = Arc::clone(&processed_counter);
@@ -65,12 +70,16 @@ impl BatchUploader {
 
                 tasks.spawn(async move {
                     let result = document_client.index(IndexBatch::new(items)).await.unwrap();
-                    println!("Uploaded {} documents", &result.value.len());
 
-                    processed_counter.fetch_add(result.value.len() as u64, Ordering::SeqCst);
-
+                    let current =
+                        processed_counter.fetch_add(result.value.len() as u64, Ordering::SeqCst);
+                    println!("Uploaded {} documents", current + result.value.len() as u64);
                     drop(permit);
                 });
+            }
+
+            if buffer.len() == 0 && !has_more {
+                break;
             }
         }
 
@@ -79,5 +88,6 @@ impl BatchUploader {
         while let Some(_) = tasks.join_next().await {}
 
         println!("Upload done");
+        println!("Uploaded {:?} documents", processed_counter);
     }
 }

@@ -70,7 +70,7 @@ impl PathIndexClient {
                 let mut search_result = search_response?.into_body::<PathIndexModel>().await?;
 
                 for path in search_result.value.drain(..) {
-                    if let Some(path_item) = path.index_model {
+                    if let Some(path_item) = path.document {
                         path_count += 1;
                         previous_key = Some(path_item.key.to_string());
                         paths_sender.send(Some(path_item)).await?;
